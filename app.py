@@ -83,314 +83,10 @@ if "messages" not in st.session_state:
 st.title("🧱 Databricks App")
 
 # Create tabs
-tab1, tab2, tab3, tab4 = st.tabs(["🤖 AI Chatbot", "📅 Holiday Request Manager", "📚 Question Generation", "🧠 Knowledge Testing"])
+tab1, tab2, tab3, tab4 = st.tabs(["📚 Question Generation", "🧠 Knowledge Testing", "🤖 AI Chatbot", "📅 Holiday Request Manager"])
+
 
 with tab1:
-    st.header("🤖 AI Chatbot with Image Analysis")
-
-# Add image upload and display section
-st.header("📸 Image Upload & View")
-st.markdown("Drop or upload an image file to view it below.")
-
-# File uploader for images
-uploaded_file = st.file_uploader(
-    "Choose an image file",
-    type=['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'],
-    help="Supported formats: PNG, JPG, JPEG, GIF, BMP, WEBP. Max size: 10MB"
-)
-
-# Show size warning if file is selected
-if uploaded_file is not None:
-    file_size_mb = uploaded_file.size / (1024 * 1024)
-    if file_size_mb > 10:
-        st.warning(f"⚠️ **Large Image Detected**: {file_size_mb:.1f}MB. This image will be automatically compressed to fit within the 10MB limit.")
-
-# Display uploaded image
-if uploaded_file is not None:
-    try:
-        # Read and display the image
-        image = Image.open(uploaded_file)
-        
-        # Always process images for optimal performance
-        file_size = uploaded_file.size
-        max_size = 10 * 1024 * 1024  # 10MB in bytes
-        
-        # Check if image needs compression
-        needs_compression = file_size > max_size
-        if needs_compression:
-            st.warning(f"⚠️ Image is {file_size / (1024*1024):.1f}MB. Processing to fit within 10MB limit...")
-        
-        # Always optimize images for better performance
-        if image.mode in ('RGBA', 'LA'):
-            # Convert RGBA to RGB for better compression
-            background = Image.new('RGB', image.size, (255, 255, 255))
-            background.paste(image, mask=image.split()[-1] if image.mode == 'RGBA' else None)
-            image = background
-        
-        # Always resize images to reasonable dimensions for better performance
-        max_dimension = 1024
-        original_size = image.size
-        if max(image.size) > max_dimension:
-            ratio = max_dimension / max(image.size)
-            new_size = tuple(int(dim * ratio) for dim in image.size)
-            image = image.resize(new_size, Image.Resampling.LANCZOS)
-            st.info(f"📏 Image resized from {original_size} to {new_size} pixels")
-        
-        # Save with compression
-        img_byte_arr = io.BytesIO()
-        image.save(img_byte_arr, format='JPEG', quality=85, optimize=True)
-        img_byte_arr.seek(0)
-        
-        # Create new PIL Image from processed bytes
-        image = Image.open(img_byte_arr)
-        
-        final_size_mb = len(img_byte_arr.getvalue()) / (1024*1024)
-        st.success(f"✅ Image processed successfully! Final size: {final_size_mb:.1f}MB")
-        
-        # Show compression ratio if original was large
-        if needs_compression:
-            compression_ratio = (1 - final_size_mb / (file_size / (1024*1024))) * 100
-            st.info(f"📊 Compression achieved: {compression_ratio:.1f}% size reduction")
-        
-        # Store the image in session state for chat use
-        st.session_state.current_image = image
-
-        # Show image info
-        col1, col2 = st.columns(2)
-        with col1:
-            st.write("**Image Details:**")
-            st.write(f"**Format:** {image.format}")
-            st.write(f"**Mode:** {image.mode}")
-            st.write(f"**Size:** {image.size[0]} × {image.size[1]} pixels")
-
-        with col2:
-            st.write("**Image Preview:**")
-            st.image(image, caption=f"Uploaded: {uploaded_file.name}", use_container_width=True)
-
-        # Show instructions for using the image in chat
-        st.success("✅ Image uploaded successfully! You can now ask questions about it in the chat below.")
-        st.info("💡 Try asking: 'What do you see in this image?' or 'Describe this image'")
-        
-        # Add a button to clear the current image
-        if st.button("🗑️ Clear Image"):
-            st.session_state.current_image = None
-            st.rerun()
-
-        # Option to download the image
-        if st.button("Download Image"):
-            # Convert image to bytes for download
-            img_byte_arr = io.BytesIO()
-            image.save(img_byte_arr, format=image.format or 'PNG')
-            img_byte_arr = img_byte_arr.getvalue()
-
-            st.download_button(
-                label="Click to Download",
-                data=img_byte_arr,
-                file_name=uploaded_file.name,
-                mime=f"image/{image.format.lower() if image.format else 'png'}"
-            )
-
-    except Exception as e:
-        st.error(f"Error processing image: {str(e)}")
-        st.write("Please try uploading a different image file.")
-
-# Add a separator
-st.divider()
-
-# Show current image status
-if st.session_state.current_image is not None:
-    st.info("🖼️ **Image Ready for Chat**: You can now ask questions about the uploaded image in the chat below!")
-
-# Check if endpoint is supported and show appropriate UI
-if not endpoint_supported:
-    st.error("⚠️ Unsupported Endpoint Type")
-    st.markdown(
-        f"The endpoint `{SERVING_ENDPOINT}` is not compatible with this basic chatbot template.\n\n"
-        "This template only supports chat completions-compatible endpoints.\n\n"
-        "👉 **For a richer chatbot template** that supports all conversational endpoints on Databricks, "
-        "please see the [Databricks documentation](https://docs.databricks.com/aws/en/generative-ai/agent-framework/chat-app)."
-    )
-else:
-    # Display chat messages from history on app rerun
-    for message in st.session_state.messages:
-        with st.chat_message(message["role"]):
-            st.markdown(message["content"])
-
-    # Accept user input
-        if prompt := st.chat_input("Ask me about the image or anything else..."):
-            # Prepare user message
-            user_message = {"role": "user", "content": prompt}
-            
-            # If there's a current image, include it in the message (only for the first question)
-            if st.session_state.current_image is not None:
-                user_message["image"] = st.session_state.current_image
-                # Clear the current image after using it so it won't be included in follow-ups
-                st.session_state.current_image = None
-            
-        # Add user message to chat history
-            st.session_state.messages.append(user_message)
-            
-        # Display user message in chat message container
-        with st.chat_message("user"):
-            st.markdown(prompt)
-
-        # Display assistant response in chat message container
-        with st.chat_message("assistant"):
-            # Show loading indicator
-            with st.spinner("🤔 Thinking..."):
-                try:
-                    # Query the Databricks serving endpoint
-                    assistant_response = query_endpoint(
-                        endpoint_name=SERVING_ENDPOINT,
-                        messages=st.session_state.messages,
-                        max_tokens=400,
-                    )["content"]
-                    st.markdown(assistant_response)
-                except Exception as e:
-                    error_msg = str(e)
-                    if "400" in error_msg or "Request size" in error_msg:
-                        st.error("❌ **Image Analysis Failed**: The image was too large or the endpoint doesn't support multimodal input. Try uploading a smaller image or ask a text-only question.")
-                        st.info("💡 **Tip**: The app will automatically try to process your image, but some endpoints may have limitations.")
-                    else:
-                        st.error(f"❌ **Error**: {error_msg}")
-                    # Don't add to chat history if there was an error
-                    assistant_response = None
-
-            # Add assistant response to chat history only if successful
-            if assistant_response:
-                st.session_state.messages.append({"role": "assistant", "content": assistant_response})
-
-with tab2:
-    st.header("📅 Holiday Request Manager")
-    st.markdown("Review, approve, or decline holiday requests from your team.")
-    
-    # Add new request section
-    with st.expander("➕ Add New Holiday Request", expanded=False):
-        st.subheader("Add New Request")
-        
-        col1, col2 = st.columns(2)
-        with col1:
-            new_employee = st.text_input("Employee Name", key="new_employee")
-            new_start_date = st.date_input("Start Date", key="new_start_date")
-        
-        with col2:
-            new_end_date = st.date_input("End Date", key="new_end_date")
-            new_status = st.selectbox("Status", ["Pending", "Approved", "Declined"], key="new_status")
-        
-        new_note = st.text_area("Manager Note (Optional)", key="new_note")
-        
-        if st.button("Add Request", key="add_request_btn"):
-            if new_employee and new_start_date and new_end_date:
-                if new_start_date <= new_end_date:
-                    success = add_holiday_request(new_employee, new_start_date, new_end_date, new_status, new_note)
-                    if success:
-                        st.success("✅ Holiday request added successfully!")
-                        st.rerun()
-                    else:
-                        st.error("❌ Failed to add holiday request. Please check your database connection.")
-                else:
-                    st.error("❌ Start date must be before or equal to end date.")
-            else:
-                st.error("❌ Please fill in all required fields.")
-    
-    # Fetch and display holiday requests
-    st.subheader("📋 Holiday Requests")
-    
-    # Add refresh button
-    if st.button("🔄 Refresh Data"):
-        st.rerun()
-    
-    # Get holiday requests from database
-    df = get_holiday_requests()
-    
-    if df.empty:
-        st.warning("No holiday requests found. Add some requests using the form above.")
-    else:
-        # Display the table
-        st.dataframe(
-            df,
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "request_id": "Request ID",
-                "employee_name": "Employee",
-                "start_date": "Start Date",
-                "end_date": "End Date",
-                "status": "Status",
-                "manager_note": "Manager Note"
-            }
-        )
-        
-        # Action section
-        st.subheader("🎯 Take Action")
-        
-        # Get list of pending requests for selection
-        pending_requests = df[df['status'] == 'Pending']
-        
-        if pending_requests.empty:
-            st.info("No pending requests to review.")
-        else:
-            # Create options for request selection
-            request_options = []
-            for _, row in pending_requests.iterrows():
-                option_text = f"ID {row['request_id']}: {row['employee_name']} ({row['start_date']} to {row['end_date']})"
-                request_options.append((option_text, row['request_id']))
-            
-            selected_request = st.selectbox(
-                "Select a request to review:",
-                options=[opt[1] for opt in request_options],
-                format_func=lambda x: next(opt[0] for opt in request_options if opt[1] == x),
-                key="selected_request"
-            )
-            
-            if selected_request:
-                # Get the selected request details
-                selected_row = df[df['request_id'] == selected_request].iloc[0]
-                
-                # Display selected request details
-                st.info(f"**Selected Request:** {selected_row['employee_name']} - {selected_row['start_date']} to {selected_row['end_date']}")
-                
-                # Action selection
-                col1, col2 = st.columns(2)
-                with col1:
-                    action = st.radio("Action:", ["Approve", "Decline"], key="action_radio")
-                
-                with col2:
-                    manager_comment = st.text_area(
-                        "Add a comment (optional):",
-                        value=selected_row['manager_note'] if selected_row['manager_note'] else "",
-                        key="manager_comment"
-                    )
-                
-                # Submit button
-                if st.button("Submit Action", key="submit_action"):
-                    status = "Approved" if action == "Approve" else "Declined"
-                    success = update_holiday_request(selected_request, status, manager_comment)
-                    
-                    if success:
-                        st.success(f"✅ Request {status.lower()} successfully!")
-                        st.rerun()
-                    else:
-                        st.error("❌ Failed to update request. Please check your database connection.")
-    
-    # Display statistics
-    if not df.empty:
-        st.subheader("📊 Statistics")
-        
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            total_requests = len(df)
-            st.metric("Total Requests", total_requests)
-        
-        with col2:
-            pending_count = len(df[df['status'] == 'Pending'])
-            st.metric("Pending", pending_count)
-        
-        with col3:
-            approved_count = len(df[df['status'] == 'Approved'])
-            st.metric("Approved", approved_count)
-
-with tab3:
     st.header("📚 Question Generation")
     st.markdown("Upload PDFs and generate multiple choice questions using AI.")
     
@@ -557,7 +253,7 @@ CRITICAL RULES:
     
     
 
-with tab4:
+with tab2:
     st.header("🧠 Knowledge Testing")
     st.markdown("Test your knowledge with randomly selected questions from the database.")
     
@@ -721,3 +417,320 @@ with tab4:
             )
         else:
             st.info("No test history available yet.")
+
+
+
+
+
+with tab3:
+    st.header("🤖 AI Chatbot with Image Analysis")
+    
+    # Image upload and display section
+    st.subheader("📸 Image Upload & View")
+    st.markdown("Drop or upload an image file to view it below.")
+
+    # File uploader for images
+    uploaded_file = st.file_uploader(
+        "Choose an image file",
+        type=['png', 'jpg', 'jpeg', 'gif', 'bmp', 'webp'],
+        help="Supported formats: PNG, JPG, JPEG, GIF, BMP, WEBP. Max size: 10MB"
+    )
+
+    # Show size warning if file is selected
+    if uploaded_file is not None:
+        file_size_mb = uploaded_file.size / (1024 * 1024)
+        if file_size_mb > 10:
+            st.warning(f"⚠️ **Large Image Detected**: {file_size_mb:.1f}MB. This image will be automatically compressed to fit within the 10MB limit.")
+
+    # Display uploaded image
+    if uploaded_file is not None:
+        try:
+            # Read and display the image
+            image = Image.open(uploaded_file)
+            
+            # Always process images for optimal performance
+            file_size = uploaded_file.size
+            max_size = 10 * 1024 * 1024  # 10MB in bytes
+            
+            # Check if image needs compression
+            needs_compression = file_size > max_size
+            if needs_compression:
+                st.warning(f"⚠️ Image is {file_size / (1024*1024):.1f}MB. Processing to fit within 10MB limit...")
+            
+            # Always optimize images for better performance
+            if image.mode in ('RGBA', 'LA'):
+                # Convert RGBA to RGB for better compression
+                background = Image.new('RGB', image.size, (255, 255, 255))
+                background.paste(image, mask=image.split()[-1] if image.mode == 'RGBA' else None)
+                image = background
+            
+            # Always resize images to reasonable dimensions for better performance
+            max_dimension = 1024
+            original_size = image.size
+            if max(image.size) > max_dimension:
+                ratio = max_dimension / max(image.size)
+                new_size = tuple(int(dim * ratio) for dim in image.size)
+                image = image.resize(new_size, Image.Resampling.LANCZOS)
+                st.info(f"📏 Image resized from {original_size} to {new_size} pixels")
+            
+            # Save with compression
+            img_byte_arr = io.BytesIO()
+            image.save(img_byte_arr, format='JPEG', quality=85, optimize=True)
+            img_byte_arr.seek(0)
+            
+            # Create new PIL Image from processed bytes
+            image = Image.open(img_byte_arr)
+            
+            final_size_mb = len(img_byte_arr.getvalue()) / (1024*1024)
+            st.success(f"✅ Image processed successfully! Final size: {final_size_mb:.1f}MB")
+            
+            # Show compression ratio if original was large
+            if needs_compression:
+                compression_ratio = (1 - final_size_mb / (file_size / (1024*1024))) * 100
+                st.info(f"📊 Compression achieved: {compression_ratio:.1f}% size reduction")
+            
+            # Store the image in session state for chat use
+            st.session_state.current_image = image
+
+            # Show image info
+            col1, col2 = st.columns(2)
+            with col1:
+                st.write("**Image Details:**")
+                st.write(f"**Format:** {image.format}")
+                st.write(f"**Mode:** {image.mode}")
+                st.write(f"**Size:** {image.size[0]} × {image.size[1]} pixels")
+
+            with col2:
+                st.write("**Image Preview:**")
+                st.image(image, caption=f"Uploaded: {uploaded_file.name}", use_container_width=True)
+
+            # Show instructions for using the image in chat
+            st.success("✅ Image uploaded successfully! You can now ask questions about it in the chat below.")
+            st.info("💡 Try asking: 'What do you see in this image?' or 'Describe this image'")
+            
+            # Add a button to clear the current image
+            if st.button("🗑️ Clear Image"):
+                st.session_state.current_image = None
+                st.rerun()
+
+            # Option to download the image
+            if st.button("Download Image"):
+                # Convert image to bytes for download
+                img_byte_arr = io.BytesIO()
+                image.save(img_byte_arr, format=image.format or 'PNG')
+                img_byte_arr = img_byte_arr.getvalue()
+
+                st.download_button(
+                    label="Click to Download",
+                    data=img_byte_arr,
+                    file_name=uploaded_file.name,
+                    mime=f"image/{image.format.lower() if image.format else 'png'}"
+                )
+
+        except Exception as e:
+            st.error(f"Error processing image: {str(e)}")
+            st.write("Please try uploading a different image file.")
+
+    # Add a separator
+    st.divider()
+
+    # Show current image status
+    if st.session_state.current_image is not None:
+        st.info("🖼️ **Image Ready for Chat**: You can now ask questions about the uploaded image in the chat below!")
+
+    # Check if endpoint is supported and show appropriate UI
+    if not endpoint_supported:
+        st.error("⚠️ Unsupported Endpoint Type")
+        st.markdown(
+            f"The endpoint `{SERVING_ENDPOINT}` is not compatible with this basic chatbot template.\n\n"
+            "This template only supports chat completions-compatible endpoints.\n\n"
+            "👉 **For a richer chatbot template** that supports all conversational endpoints on Databricks, "
+            "please see the [Databricks documentation](https://docs.databricks.com/aws/en/generative-ai/agent-framework/chat-app)."
+        )
+    else:
+        # Display chat messages from history on app rerun
+        for message in st.session_state.messages:
+            with st.chat_message(message["role"]):
+                st.markdown(message["content"])
+
+        # Accept user input
+        if prompt := st.chat_input("Ask me about the image or anything else..."):
+            # Prepare user message
+            user_message = {"role": "user", "content": prompt}
+            
+            # If there's a current image, include it in the message (only for the first question)
+            if st.session_state.current_image is not None:
+                user_message["image"] = st.session_state.current_image
+                # Clear the current image after using it so it won't be included in follow-ups
+                st.session_state.current_image = None
+            
+        # Add user message to chat history
+            st.session_state.messages.append(user_message)
+            
+        # Display user message in chat message container
+        with st.chat_message("user"):
+            st.markdown(prompt)
+
+        # Display assistant response in chat message container
+        with st.chat_message("assistant"):
+            # Show loading indicator
+            with st.spinner("🤔 Thinking..."):
+                try:
+                    # Query the Databricks serving endpoint
+                    assistant_response = query_endpoint(
+                        endpoint_name=SERVING_ENDPOINT,
+                        messages=st.session_state.messages,
+                        max_tokens=400,
+                    )["content"]
+                    st.markdown(assistant_response)
+                except Exception as e:
+                    error_msg = str(e)
+                    if "400" in error_msg or "Request size" in error_msg:
+                        st.error("❌ **Image Analysis Failed**: The image was too large or the endpoint doesn't support multimodal input. Try uploading a smaller image or ask a text-only question.")
+                        st.info("💡 **Tip**: The app will automatically try to process your image, but some endpoints may have limitations.")
+                    else:
+                        st.error(f"❌ **Error**: {error_msg}")
+                    # Don't add to chat history if there was an error
+                    assistant_response = None
+
+            # Add assistant response to chat history only if successful
+            if assistant_response:
+                st.session_state.messages.append({"role": "assistant", "content": assistant_response})
+
+
+
+
+
+
+with tab4:
+    st.header("📅 Holiday Request Manager")
+    st.markdown("Review, approve, or decline holiday requests from your team.")
+    
+    # Add new request section
+    with st.expander("➕ Add New Holiday Request", expanded=False):
+        st.subheader("Add New Request")
+        
+        col1, col2 = st.columns(2)
+        with col1:
+            new_employee = st.text_input("Employee Name", key="new_employee")
+            new_start_date = st.date_input("Start Date", key="new_start_date")
+        
+        with col2:
+            new_end_date = st.date_input("End Date", key="new_end_date")
+            new_status = st.selectbox("Status", ["Pending", "Approved", "Declined"], key="new_status")
+        
+        new_note = st.text_area("Manager Note (Optional)", key="new_note")
+        
+        if st.button("Add Request", key="add_request_btn"):
+            if new_employee and new_start_date and new_end_date:
+                if new_start_date <= new_end_date:
+                    success = add_holiday_request(new_employee, new_start_date, new_end_date, new_status, new_note)
+                    if success:
+                        st.success("✅ Holiday request added successfully!")
+                        st.rerun()
+                    else:
+                        st.error("❌ Failed to add holiday request. Please check your database connection.")
+                else:
+                    st.error("❌ Start date must be before or equal to end date.")
+            else:
+                st.error("❌ Please fill in all required fields.")
+    
+    # Fetch and display holiday requests
+    st.subheader("📋 Holiday Requests")
+    
+    # Add refresh button
+    if st.button("🔄 Refresh Data"):
+        st.rerun()
+    
+    # Get holiday requests from database
+    df = get_holiday_requests()
+    
+    if df.empty:
+        st.warning("No holiday requests found. Add some requests using the form above.")
+    else:
+        # Display the table
+        st.dataframe(
+            df,
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "request_id": "Request ID",
+                "employee_name": "Employee",
+                "start_date": "Start Date",
+                "end_date": "End Date",
+                "status": "Status",
+                "manager_note": "Manager Note"
+            }
+        )
+        
+        # Action section
+        st.subheader("🎯 Take Action")
+        
+        # Get list of pending requests for selection
+        pending_requests = df[df['status'] == 'Pending']
+        
+        if pending_requests.empty:
+            st.info("No pending requests to review.")
+        else:
+            # Create options for request selection
+            request_options = []
+            for _, row in pending_requests.iterrows():
+                option_text = f"ID {row['request_id']}: {row['employee_name']} ({row['start_date']} to {row['end_date']})"
+                request_options.append((option_text, row['request_id']))
+            
+            selected_request = st.selectbox(
+                "Select a request to review:",
+                options=[opt[1] for opt in request_options],
+                format_func=lambda x: next(opt[0] for opt in request_options if opt[1] == x),
+                key="selected_request"
+            )
+            
+            if selected_request:
+                # Get the selected request details
+                selected_row = df[df['request_id'] == selected_request].iloc[0]
+                
+                # Display selected request details
+                st.info(f"**Selected Request:** {selected_row['employee_name']} - {selected_row['start_date']} to {selected_row['end_date']}")
+                
+                # Action selection
+                col1, col2 = st.columns(2)
+                with col1:
+                    action = st.radio("Action:", ["Approve", "Decline"], key="action_radio")
+                
+                with col2:
+                    manager_comment = st.text_area(
+                        "Add a comment (optional):",
+                        value=selected_row['manager_note'] if selected_row['manager_note'] else "",
+                        key="manager_comment"
+                    )
+                
+                # Submit button
+                if st.button("Submit Action", key="submit_action"):
+                    status = "Approved" if action == "Approve" else "Declined"
+                    success = update_holiday_request(selected_request, status, manager_comment)
+                    
+                    if success:
+                        st.success(f"✅ Request {status.lower()} successfully!")
+                        st.rerun()
+                    else:
+                        st.error("❌ Failed to update request. Please check your database connection.")
+    
+    # Display statistics
+    if not df.empty:
+        st.subheader("📊 Statistics")
+        
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            total_requests = len(df)
+            st.metric("Total Requests", total_requests)
+        
+        with col2:
+            pending_count = len(df[df['status'] == 'Pending'])
+            st.metric("Pending", pending_count)
+        
+        with col3:
+            approved_count = len(df[df['status'] == 'Approved'])
+            st.metric("Approved", approved_count)
+
+
+
