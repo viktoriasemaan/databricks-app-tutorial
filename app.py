@@ -10,7 +10,8 @@ from dotenv import load_dotenv
 from database_utils import (
     get_holiday_requests, update_holiday_request, add_holiday_request,
     save_pdf, save_questions, get_all_pdfs, get_questions_by_pdf, 
-    get_random_questions, save_test_result, get_test_history
+    get_random_questions, save_test_result, get_test_history,
+    create_quiz, get_all_quizzes
 )
 from pdf_utils import extract_text_from_pdf, get_pdf_info, validate_pdf_file, format_file_size
 from question_utils import generate_questions_from_text, validate_question_format, format_questions_for_display
@@ -80,189 +81,39 @@ if "current_image" not in st.session_state:
 if "messages" not in st.session_state:
     st.session_state.messages = []
 
-st.title("🧱 Databricks App")
+st.title("Knowledge Testing App")
 
 # Create tabs
-tab1, tab2, tab3, tab4 = st.tabs(["📚 Question Generation", "🧠 Knowledge Testing", "🤖 AI Chatbot", "📅 Holiday Request Manager"])
+tab1, tab2, tab3, tab4 = st.tabs(["Knowledge Testing", "Question Generation", "AI Chatbot", "Holiday Manager"])
 
 
 with tab1:
-    st.header("📚 Question Generation")
-    st.markdown("Upload PDFs and generate multiple choice questions using AI.")
+    st.header("Knowledge Testing")
+    st.markdown("Test your knowledge with randomly selected questions from available quizzes.")
     
-    # PDF Upload Section
-    st.subheader("📄 Upload PDF")
+    # Quiz Selection Section
+    st.subheader("Select Quiz")
     
-    uploaded_file = st.file_uploader(
-        "Choose a PDF file",
-        type="pdf",
-        help="Upload a PDF document to generate questions from its content"
-    )
+    # Get available quizzes
+    quizzes_df = get_all_quizzes()
     
-    if uploaded_file is not None:
-        # Validate PDF
-        if not validate_pdf_file(uploaded_file):
-            st.error("❌ Invalid PDF file. Please upload a valid PDF document.")
-        else:
-            # Get PDF info
-            pdf_info = get_pdf_info(uploaded_file)
-            
-            col1, col2, col3 = st.columns(3)
-            with col1:
-                st.metric("File Size", format_file_size(pdf_info["file_size"]))
-            with col2:
-                st.metric("Pages", pdf_info["page_count"])
-            with col3:
-                st.metric("Filename", pdf_info["filename"][:20] + "..." if len(pdf_info["filename"]) > 20 else pdf_info["filename"])
-            
-            # Extract text
-            with st.spinner("📖 Extracting text from PDF..."):
-                pdf_text = extract_text_from_pdf(uploaded_file)
-            
-            if pdf_text:
-                st.success("✅ PDF text extracted successfully")
-                
-                # Show text preview
-                
-                # Question generation settings
-                st.subheader("⚙️ Question Generation Settings")
-                
-                col1, col2 = st.columns(2)
-                with col1:
-                    num_questions = st.slider("Number of Questions", min_value=3, max_value=10, value=5, key="question_gen_slider")
-                with col2:
-                    difficulty = st.selectbox("Difficulty Level", ["easy", "medium", "hard"], index=1, key="question_gen_difficulty")
-                
-                # System prompt for better question generation
-                st.subheader("🎯 AI System Prompt")
-                st.markdown("Customize how the AI generates questions. This helps create better, more targeted questions.")
-                
-                default_prompt = """You are a question extraction specialist. Your PRIMARY task is to extract existing questions from documents and format them properly.
-
-PROCESS:
-1. EXTRACT FIRST: Find all existing questions in the document (questions with ?, multiple choice, sample questions, etc.)
-2. FORMAT: Structure each question with Question, Answer choices (A,B,C,D), Correct Answer, and Difficulty
-3. ONLY IF NO QUESTIONS FOUND: Generate new questions in the same format
-
-OUTPUT FORMAT for each question:
-Question: [exact question text from document]
-A) [option A text]  
-B) [option B text]  
-C) [option C text]
-D) [option D text]
-Correct Answer: [letter]
-Difficulty: [easy/medium/hard]
-
-CRITICAL RULES:
-- Always extract existing questions first before generating new ones
-- Copy question text exactly as it appears in the document
-- If original questions lack answer choices, create appropriate ones
-- Only generate new questions if zero questions are found in the document"""
-                
-                system_prompt = st.text_area(
-                    "System Prompt for Question Generation",
-                    value=default_prompt,
-                    height=200,
-                    help="This prompt guides the AI on how to generate better questions. Modify it to suit your specific needs.",
-                    key="system_prompt_textarea"
-                )
-                
-                
-                # Generate questions button
-                if st.button("🎯 Generate Questions", type="primary", key="generate_questions_btn"):
-                    with st.spinner("🤖 Generating questions with AI..."):
-                        questions = generate_questions_from_text(
-                            pdf_text, 
-                            num_questions=num_questions, 
-                            serving_endpoint=SERVING_ENDPOINT,
-                            system_prompt=system_prompt
-                        )
-                    
-                    if questions:
-                        # Store questions in session state
-                        st.session_state.generated_questions = questions
-                        st.session_state.pdf_info = pdf_info
-                        st.session_state.pdf_text = pdf_text
-                        st.success(f"✅ Generated {len(questions)} questions successfully!")
-                        
-                        # Just show success message - questions will be displayed in session state section
-                        st.info("💡 Questions generated! Scroll down to review and save them.")
-                    else:
-                        st.error("❌ Failed to generate questions. Please try again.")
-            else:
-                st.error("❌ Failed to extract text from PDF. The PDF might be corrupted or password-protected.")
-    
-    # Display and save questions from session state (persistent after page refresh)
-    if "generated_questions" in st.session_state and st.session_state.generated_questions:
-        st.subheader("📋 Generated Questions (Ready to Save)")
-        
-        questions = st.session_state.generated_questions
-        pdf_info = st.session_state.pdf_info
-        pdf_text = st.session_state.pdf_text
-        
-        for i, question in enumerate(questions, 1):
-            with st.expander(f"Question {i}", expanded=True):
-                st.write(f"**Question:** {question['question']}")
-                
-                col1, col2 = st.columns(2)
-                with col1:
-                    st.write(f"**A)** {question['option_a']}")
-                    st.write(f"**B)** {question['option_b']}")
-                with col2:
-                    st.write(f"**C)** {question['option_c']}")
-                    st.write(f"**D)** {question['option_d']}")
-                
-                st.write(f"**Correct Answer:** {question['correct_answer']}")
-                st.write(f"**Difficulty:** {question.get('difficulty', 'medium')}")
-        
-        # Save to database
-        if st.button("💾 Save Questions to Database", type="secondary", key="save_questions_persistent_btn"):
-            with st.spinner("💾 Saving questions to database..."):
-                try:
-                    from database_utils import get_lakebase_connection, save_pdf, save_questions
-                    engine = get_lakebase_connection()
-                    if engine:
-                        # Save PDF first
-                        pdf_id = save_pdf(
-                            pdf_info["filename"],
-                            pdf_text,
-                            pdf_info["file_size"],
-                            pdf_info["page_count"]
-                        )
-                        
-                        if pdf_id:
-                            # Save questions
-                            if save_questions(questions, pdf_id):
-                                st.success("🎉 **Questions saved successfully!**")
-                                st.balloons()
-                                st.info("💡 You can now go to the Knowledge Testing tab to take a quiz!")
-                                
-                                # Clear session state after successful save
-                                del st.session_state.generated_questions
-                                del st.session_state.pdf_info
-                                del st.session_state.pdf_text
-                            else:
-                                st.error("❌ Failed to save questions to database.")
-                        else:
-                            st.error("❌ Failed to save PDF to database.")
-                    else:
-                        st.error("❌ Database connection failed!")
-                        
-                except Exception as e:
-                    st.error(f"❌ Error saving questions: {str(e)}")
-    
-    
-
-with tab2:
-    st.header("🧠 Knowledge Testing")
-    st.markdown("Test your knowledge with randomly selected questions from the database.")
-    
-    # Check if there are questions available
-    questions_df = get_random_questions(1)  # Just check if any questions exist
-    
-    if questions_df.empty:
-        st.warning("⚠️ No questions available in the database. Please generate some questions first in the Question Generation tab.")
+    if quizzes_df.empty:
+        st.warning("⚠️ No quizzes available. Please create some quizzes first in the Question Generation tab.")
     else:
+        # Quiz selection
+        quiz_options = {}
+        for _, quiz in quizzes_df.iterrows():
+            quiz_options[f"{quiz['quiz_name']} ({quiz['total_questions']} questions) - {quiz['created_date'].strftime('%Y-%m-%d')}"] = quiz['quiz_id']
+        
+        selected_quiz_display = st.selectbox(
+            "Choose a quiz to take:",
+            options=list(quiz_options.keys()),
+            key="quiz_selection"
+        )
+        
+        selected_quiz_id = quiz_options[selected_quiz_display] if selected_quiz_display else None
+        selected_quiz_name = selected_quiz_display.split(' (')[0] if selected_quiz_display else None
+        
         # Initialize session state for test
         if "test_questions" not in st.session_state:
             st.session_state.test_questions = None
@@ -281,13 +132,13 @@ with tab2:
             
             col1, col2 = st.columns(2)
             with col1:
-                num_test_questions = st.slider("Number of Questions", min_value=3, max_value=10, value=5, key="test_questions_slider")
+                num_test_questions = st.slider("Number of Questions", min_value=3, max_value=20, value=5, key="test_questions_slider")
             with col2:
                 time_limit = st.selectbox("Time Limit", ["No Limit", "5 minutes", "10 minutes", "15 minutes"], index=0, key="test_time_limit")
             
-            if st.button("🚀 Start Test", type="primary", key="start_test_btn"):
+            if st.button("Start Test", type="primary", key="start_test_btn"):
                 with st.spinner("🎲 Selecting random questions..."):
-                    st.session_state.test_questions = get_random_questions(num_test_questions)
+                    st.session_state.test_questions = get_random_questions(num_test_questions, selected_quiz_id)
                     st.session_state.test_answers = {}
                     st.session_state.test_started = True
                     st.session_state.test_completed = False
@@ -320,19 +171,19 @@ with tab2:
                 
                 col1, col2 = st.columns(2)
                 with col1:
-                    if st.button("➡️ Next Question", type="primary"):
+                    if st.button("Next Question", type="primary"):
                         st.session_state.test_answers[current_question['question_id']] = answer
                         st.rerun()
                 
                 with col2:
-                    if st.button("🏁 Finish Test"):
+                    if st.button("Finish Test", type="primary"):
                         st.session_state.test_answers[current_question['question_id']] = answer
                         st.session_state.test_completed = True
                         st.rerun()
             
             # Finish test button
             if len(st.session_state.test_answers) == len(st.session_state.test_questions):
-                if st.button("🏁 Finish Test", type="primary"):
+                if st.button("Finish Test", type="primary"):
                     st.session_state.test_completed = True
                     st.rerun()
         
@@ -375,7 +226,7 @@ with tab2:
             
             # Save results to database
             question_ids = st.session_state.test_questions['question_id'].tolist()
-            save_test_result(total_questions, correct_answers, score_percentage, time_taken, question_ids)
+            save_test_result(total_questions, correct_answers, score_percentage, time_taken, question_ids, selected_quiz_id, selected_quiz_name)
             
             # Show detailed results
             st.subheader("📋 Detailed Results")
@@ -390,7 +241,7 @@ with tab2:
                         st.error("❌ Incorrect")
             
             # Reset test
-            if st.button("🔄 Take Another Test", type="primary"):
+            if st.button("Take Another Test", type="primary"):
                 st.session_state.test_questions = None
                 st.session_state.test_answers = {}
                 st.session_state.test_started = False
@@ -403,30 +254,223 @@ with tab2:
         history_df = get_test_history()
         
         if not history_df.empty:
-            st.dataframe(
-                history_df[['test_date', 'total_questions', 'correct_answers', 'score_percentage', 'time_taken_seconds']],
-                use_container_width=True,
-                hide_index=True,
-                column_config={
-                    "test_date": "Date",
-                    "total_questions": "Questions",
-                    "correct_answers": "Correct",
-                    "score_percentage": "Score %",
-                    "time_taken_seconds": "Time (s)"
-                }
-            )
+            # Display test history with clickable entries
+            for _, test in history_df.iterrows():
+                with st.expander(f"📅 {test['test_date'].strftime('%Y-%m-%d %H:%M')} - Score: {test['score_percentage']:.1f}%", expanded=False):
+                    col1, col2, col3, col4 = st.columns(4)
+                    with col1:
+                        st.metric("Questions", test['total_questions'])
+                    with col2:
+                        st.metric("Correct", test['correct_answers'])
+                    with col3:
+                        st.metric("Score %", f"{test['score_percentage']:.1f}%")
+                    with col4:
+                        st.metric("Time", f"{test['time_taken_seconds'] // 60}:{test['time_taken_seconds'] % 60:02d}")
+                    
+                    # Calculate and display grade
+                    grade = "A" if test['score_percentage'] >= 90 else "B" if test['score_percentage'] >= 80 else "C" if test['score_percentage'] >= 70 else "D" if test['score_percentage'] >= 60 else "F"
+                    st.write(f"**Grade:** {grade}")
+                    
+                    # Show quiz name if available
+                    if 'quiz_name' in test and test['quiz_name']:
+                        st.write(f"**Quiz:** {test['quiz_name']}")
+                    
+                    # Performance feedback
+                    if test['score_percentage'] >= 90:
+                        st.success("🎉 Excellent performance!")
+                    elif test['score_percentage'] >= 80:
+                        st.info("👍 Good job!")
+                    elif test['score_percentage'] >= 70:
+                        st.warning("📚 Keep practicing!")
+                    else:
+                        st.error("💪 Don't give up! Review the material and try again.")
         else:
             st.info("No test history available yet.")
 
 
+with tab2:
+    st.header("Question Generation")
+    st.markdown("Upload PDFs and generate multiple choice questions using AI. Create reusable quizzes for testing.")
+    
+    # PDF Upload Section
+    st.subheader("Upload PDF")
+    
+    uploaded_file = st.file_uploader(
+        "Choose a PDF file",
+        type="pdf",
+        help="Upload a PDF document to generate questions from its content"
+    )
+    
+    if uploaded_file is not None:
+        # Validate PDF
+        if not validate_pdf_file(uploaded_file):
+            st.error("❌ Invalid PDF file. Please upload a valid PDF document.")
+        else:
+            # Get PDF info
+            pdf_info = get_pdf_info(uploaded_file)
+            
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("File Size", format_file_size(pdf_info["file_size"]))
+            with col2:
+                st.metric("Pages", pdf_info["page_count"])
+            with col3:
+                st.metric("Filename", pdf_info["filename"][:20] + "..." if len(pdf_info["filename"]) > 20 else pdf_info["filename"])
+            
+            # Extract text
+            with st.spinner("📖 Extracting text from PDF..."):
+                pdf_text = extract_text_from_pdf(uploaded_file)
+            
+            if pdf_text:
+                st.success("✅ PDF text extracted successfully")
+                
+                # Quiz creation settings
+                st.subheader("Create Quiz")
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    quiz_name = st.text_input("Quiz Name", value=f"Quiz - {pdf_info['filename'][:30]}", key="quiz_name_input")
+                with col2:
+                    quiz_description = st.text_input("Quiz Description (Optional)", key="quiz_description_input")
+                
+                # Question generation settings
+                st.subheader("Question Generation Settings")
+                
+                col1, col2 = st.columns(2)
+                with col1:
+                    num_questions = st.slider("Number of Questions", min_value=3, max_value=20, value=5, key="question_gen_slider")
+                with col2:
+                    difficulty = st.selectbox("Difficulty Level", ["easy", "medium", "hard"], index=1, key="question_gen_difficulty")
+                
+                # System prompt for better question generation
+                st.subheader("AI System Prompt")
+                st.markdown("Customize how the AI generates questions. This helps create better, more targeted questions.")
+                
+                default_prompt = """You are a question extraction specialist. Your PRIMARY task is to extract existing questions from documents and format them properly.
 
+PROCESS:
+1. EXTRACT FIRST: Find all existing questions in the document (questions with ?, multiple choice, sample questions, etc.)
+2. FORMAT: Structure each question with Question, Answer choices (A,B,C,D), Correct Answer, and Difficulty
+3. ONLY IF NO QUESTIONS FOUND: Generate new questions in the same format
+
+OUTPUT FORMAT for each question:
+Question: [exact question text from document]
+A) [option A text]  
+B) [option B text]
+C) [option C text]
+D) [option D text]
+Correct Answer: [letter]
+Difficulty: [easy/medium/hard]
+
+CRITICAL RULES:
+- Always extract existing questions first before generating new ones
+- Copy question text exactly as it appears in the document
+- If original questions lack answer choices, create appropriate ones
+- Only generate new questions if zero questions are found in the document"""
+
+                system_prompt = st.text_area(
+                    "System Prompt (Advanced)",
+                    value=default_prompt,
+                    height=200,
+                    help="This prompt guides the AI on how to generate questions. Modify it to change the AI's behavior.",
+                    key="system_prompt_textarea"
+                )
+                
+                # Generate questions button
+                if st.button("Generate Questions", type="primary", key="generate_questions_btn"):
+                    with st.spinner("🤖 Generating questions with AI..."):
+                        try:
+                            # Generate questions using the provided system prompt
+                            generated_questions = generate_questions_from_text(
+                                pdf_text, 
+                                num_questions, 
+                                serving_endpoint=SERVING_ENDPOINT,
+                                system_prompt=system_prompt
+                            )
+                            
+                            if generated_questions:
+                                # Store in session state for persistence
+                                st.session_state.generated_questions = generated_questions
+                                st.session_state.pdf_info = pdf_info
+                                st.session_state.pdf_text = pdf_text
+                                st.session_state.quiz_name = quiz_name
+                                st.session_state.quiz_description = quiz_description
+                                
+                                st.success(f"✅ Generated {len(generated_questions)} questions successfully!")
+                                
+                                # Display generated questions
+                                st.subheader("Generated Questions (Ready to Save)")
+                                
+                                # Display questions in expandable format like the image
+                                for i, question in enumerate(generated_questions):
+                                    with st.expander(f"Question {i + 1}", expanded=True):
+                                        st.markdown(f"**Question:** {question['question']}")
+                                        st.markdown(f"**A)** {question['option_a']}")
+                                        st.markdown(f"**B)** {question['option_b']}")
+                                        st.markdown(f"**C)** {question['option_c']}")
+                                        st.markdown(f"**D)** {question['option_d']}")
+                                        st.markdown(f"**Correct Answer:** {question['correct_answer']}")
+                                        st.markdown(f"**Difficulty:** {question.get('difficulty', 'medium')}")
+                                
+                                # Save to database button
+                                if st.button("Save Quiz to Database", type="primary", key="save_quiz_btn"):
+                                    # Save PDF first
+                                    pdf_id = save_pdf(pdf_info["filename"], pdf_text, pdf_info["file_size"], pdf_info["page_count"])
+                                    
+                                    if pdf_id:
+                                        # Create quiz
+                                        quiz_id = create_quiz(quiz_name, quiz_description, pdf_id, len(generated_questions))
+                                        
+                                        if quiz_id:
+                                            # Save questions
+                                            if save_questions(generated_questions, quiz_id):
+                                                st.success("✅ Quiz saved to database successfully!")
+                                                # Clear session state after successful save
+                                                st.session_state.generated_questions = None
+                                                st.session_state.pdf_info = None
+                                                st.session_state.pdf_text = None
+                                                st.session_state.quiz_name = None
+                                                st.session_state.quiz_description = None
+                                            else:
+                                                st.error("❌ Failed to save questions to database.")
+                                        else:
+                                            st.error("❌ Failed to create quiz in database.")
+                                    else:
+                                        st.error("❌ Failed to save PDF to database.")
+                            else:
+                                st.error("❌ Failed to generate questions. Please try again.")
+                        except Exception as e:
+                            st.error(f"❌ Error generating questions: {str(e)}")
+                
+            else:
+                st.error("❌ Failed to extract text from PDF. Please try a different file.")
+    
+    # Show existing quizzes
+    st.subheader("📚 Your Quizzes")
+    
+    # Get all quizzes
+    quizzes_df = get_all_quizzes()
+    if not quizzes_df.empty:
+        st.dataframe(
+            quizzes_df[['quiz_name', 'description', 'total_questions', 'created_date']],
+            use_container_width=True,
+            hide_index=True,
+            column_config={
+                "quiz_name": "Quiz Name",
+                "description": "Description",
+                "total_questions": "Questions",
+                "created_date": "Created Date"
+            }
+        )
+    else:
+        st.info("No quizzes created yet.")
 
 
 with tab3:
-    st.header("🤖 AI Chatbot with Image Analysis")
+    st.header("AI Chatbot")
     
     # Image upload and display section
-    st.subheader("📸 Image Upload & View")
+    st.subheader("Image Upload & View")
     st.markdown("Drop or upload an image file to view it below.")
 
     # File uploader for images
@@ -509,12 +553,12 @@ with tab3:
             st.info("💡 Try asking: 'What do you see in this image?' or 'Describe this image'")
             
             # Add a button to clear the current image
-            if st.button("🗑️ Clear Image"):
+            if st.button("Clear Image", type="primary"):
                 st.session_state.current_image = None
                 st.rerun()
 
             # Option to download the image
-            if st.button("Download Image"):
+            if st.button("Download Image", type="primary"):
                 # Convert image to bytes for download
                 img_byte_arr = io.BytesIO()
                 image.save(img_byte_arr, format=image.format or 'PNG')
@@ -564,173 +608,113 @@ with tab3:
                 # Clear the current image after using it so it won't be included in follow-ups
                 st.session_state.current_image = None
             
-        # Add user message to chat history
+            # Add user message to chat history
             st.session_state.messages.append(user_message)
             
-        # Display user message in chat message container
-        with st.chat_message("user"):
-            st.markdown(prompt)
+            # Display user message in chat message container
+            with st.chat_message("user"):
+                st.markdown(prompt)
 
-        # Display assistant response in chat message container
-        with st.chat_message("assistant"):
-            # Show loading indicator
-            with st.spinner("🤔 Thinking..."):
-                try:
-                    # Query the Databricks serving endpoint
-                    assistant_response = query_endpoint(
-                        endpoint_name=SERVING_ENDPOINT,
-                        messages=st.session_state.messages,
-                        max_tokens=400,
-                    )["content"]
-                    st.markdown(assistant_response)
-                except Exception as e:
-                    error_msg = str(e)
-                    if "400" in error_msg or "Request size" in error_msg:
-                        st.error("❌ **Image Analysis Failed**: The image was too large or the endpoint doesn't support multimodal input. Try uploading a smaller image or ask a text-only question.")
-                        st.info("💡 **Tip**: The app will automatically try to process your image, but some endpoints may have limitations.")
-                    else:
-                        st.error(f"❌ **Error**: {error_msg}")
-                    # Don't add to chat history if there was an error
-                    assistant_response = None
+            # Display assistant response in chat message container
+            with st.chat_message("assistant"):
+                # Show loading indicator
+                with st.spinner("🤔 Thinking..."):
+                    try:
+                        # Query the Databricks serving endpoint
+                        assistant_response = query_endpoint(
+                            endpoint_name=SERVING_ENDPOINT,
+                            messages=st.session_state.messages,
+                            max_tokens=400,
+                        )["content"]
+                        st.markdown(assistant_response)
+                    except Exception as e:
+                        error_msg = str(e)
+                        if "400" in error_msg or "Request size" in error_msg:
+                            st.error("❌ **Image Analysis Failed**: The image was too large or the endpoint doesn't support multimodal input. Try uploading a smaller image or ask a text-only question.")
+                            st.info("💡 **Tip**: The app will automatically try to process your image, but some endpoints may have limitations.")
+                        else:
+                            st.error(f"❌ **Error**: {error_msg}")
+                        # Don't add to chat history if there was an error
+                        assistant_response = None
 
-            # Add assistant response to chat history only if successful
-            if assistant_response:
-                st.session_state.messages.append({"role": "assistant", "content": assistant_response})
-
-
-
-
+                # Add assistant response to chat history only if successful
+                if assistant_response:
+                    st.session_state.messages.append({"role": "assistant", "content": assistant_response})
 
 
 with tab4:
-    st.header("📅 Holiday Request Manager")
+    st.header("Holiday Manager")
     st.markdown("Review, approve, or decline holiday requests from your team.")
     
     # Add new request section
-    with st.expander("➕ Add New Holiday Request", expanded=False):
+    with st.expander("Add New Holiday Request", expanded=False):
         st.subheader("Add New Request")
         
         col1, col2 = st.columns(2)
         with col1:
-            new_employee = st.text_input("Employee Name", key="new_employee")
-            new_start_date = st.date_input("Start Date", key="new_start_date")
-        
+            employee_name = st.text_input("Employee Name", key="new_employee_name")
+            start_date = st.date_input("Start Date", key="new_start_date")
         with col2:
-            new_end_date = st.date_input("End Date", key="new_end_date")
-            new_status = st.selectbox("Status", ["Pending", "Approved", "Declined"], key="new_status")
+            end_date = st.date_input("End Date", key="new_end_date")
+            status = st.selectbox("Status", ["Pending", "Approved", "Declined"], key="new_status")
         
-        new_note = st.text_area("Manager Note (Optional)", key="new_note")
+        manager_note = st.text_area("Manager Note (Optional)", key="new_manager_note")
         
-        if st.button("Add Request", key="add_request_btn"):
-            if new_employee and new_start_date and new_end_date:
-                if new_start_date <= new_end_date:
-                    success = add_holiday_request(new_employee, new_start_date, new_end_date, new_status, new_note)
-                    if success:
-                        st.success("✅ Holiday request added successfully!")
-                        st.rerun()
-                    else:
-                        st.error("❌ Failed to add holiday request. Please check your database connection.")
+        if st.button("Add Request", type="primary", key="add_request_btn"):
+            if employee_name and start_date and end_date:
+                if add_holiday_request(employee_name, start_date, end_date, status, manager_note):
+                    st.success("✅ Holiday request added successfully!")
+                    st.rerun()
                 else:
-                    st.error("❌ Start date must be before or equal to end date.")
+                    st.error("❌ Failed to add holiday request.")
             else:
-                st.error("❌ Please fill in all required fields.")
+                st.error("Please fill in all required fields.")
     
-    # Fetch and display holiday requests
+    # Display existing requests
     st.subheader("📋 Holiday Requests")
     
-    # Add refresh button
-    if st.button("🔄 Refresh Data"):
-        st.rerun()
+    # Get holiday requests
+    requests_df = get_holiday_requests()
     
-    # Get holiday requests from database
-    df = get_holiday_requests()
-    
-    if df.empty:
-        st.warning("No holiday requests found. Add some requests using the form above.")
-    else:
-        # Display the table
-        st.dataframe(
-            df,
-            use_container_width=True,
-            hide_index=True,
-            column_config={
-                "request_id": "Request ID",
-                "employee_name": "Employee",
-                "start_date": "Start Date",
-                "end_date": "End Date",
-                "status": "Status",
-                "manager_note": "Manager Note"
-            }
-        )
-        
-        # Action section
-        st.subheader("🎯 Take Action")
-        
-        # Get list of pending requests for selection
-        pending_requests = df[df['status'] == 'Pending']
-        
-        if pending_requests.empty:
-            st.info("No pending requests to review.")
-        else:
-            # Create options for request selection
-            request_options = []
-            for _, row in pending_requests.iterrows():
-                option_text = f"ID {row['request_id']}: {row['employee_name']} ({row['start_date']} to {row['end_date']})"
-                request_options.append((option_text, row['request_id']))
-            
-            selected_request = st.selectbox(
-                "Select a request to review:",
-                options=[opt[1] for opt in request_options],
-                format_func=lambda x: next(opt[0] for opt in request_options if opt[1] == x),
-                key="selected_request"
-            )
-            
-            if selected_request:
-                # Get the selected request details
-                selected_row = df[df['request_id'] == selected_request].iloc[0]
-                
-                # Display selected request details
-                st.info(f"**Selected Request:** {selected_row['employee_name']} - {selected_row['start_date']} to {selected_row['end_date']}")
-                
-                # Action selection
-                col1, col2 = st.columns(2)
+    if not requests_df.empty:
+        # Display requests in a table
+        for _, request in requests_df.iterrows():
+            with st.expander(f"Request #{request['request_id']} - {request['employee_name']} ({request['status']})", expanded=False):
+                col1, col2, col3 = st.columns(3)
                 with col1:
-                    action = st.radio("Action:", ["Approve", "Decline"], key="action_radio")
-                
+                    st.write(f"**Employee:** {request['employee_name']}")
+                    st.write(f"**Start Date:** {request['start_date']}")
                 with col2:
-                    manager_comment = st.text_area(
-                        "Add a comment (optional):",
-                        value=selected_row['manager_note'] if selected_row['manager_note'] else "",
-                        key="manager_comment"
-                    )
+                    st.write(f"**End Date:** {request['end_date']}")
+                    st.write(f"**Status:** {request['status']}")
+                with col3:
+                    st.write(f"**Manager Note:** {request['manager_note'] or 'None'}")
                 
-                # Submit button
-                if st.button("Submit Action", key="submit_action"):
-                    status = "Approved" if action == "Approve" else "Declined"
-                    success = update_holiday_request(selected_request, status, manager_comment)
-                    
-                    if success:
-                        st.success(f"✅ Request {status.lower()} successfully!")
-                        st.rerun()
-                    else:
-                        st.error("❌ Failed to update request. Please check your database connection.")
-    
-    # Display statistics
-    if not df.empty:
-        st.subheader("📊 Statistics")
-        
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            total_requests = len(df)
-            st.metric("Total Requests", total_requests)
-        
-        with col2:
-            pending_count = len(df[df['status'] == 'Pending'])
-            st.metric("Pending", pending_count)
-        
-        with col3:
-            approved_count = len(df[df['status'] == 'Approved'])
-            st.metric("Approved", approved_count)
-
-
-
+                # Action buttons
+                if request['status'] == 'Pending':
+                    col1, col2, col3 = st.columns(3)
+                    with col1:
+                        if st.button(f"Approve", type="primary", key=f"approve_{request['request_id']}"):
+                            if update_holiday_request(request['request_id'], 'Approved', 'Request approved by manager'):
+                                st.success("✅ Request approved!")
+                                st.rerun()
+                            else:
+                                st.error("❌ Failed to approve request.")
+                    with col2:
+                        if st.button(f"Decline", type="primary", key=f"decline_{request['request_id']}"):
+                            if update_holiday_request(request['request_id'], 'Declined', 'Request declined by manager'):
+                                st.success("✅ Request declined!")
+                                st.rerun()
+                            else:
+                                st.error("❌ Failed to decline request.")
+                    with col3:
+                        if st.button(f"Add Note", type="primary", key=f"note_{request['request_id']}"):
+                            note = st.text_input("Manager Note", key=f"note_input_{request['request_id']}")
+                            if st.button("Save Note", type="primary", key=f"save_note_{request['request_id']}"):
+                                if update_holiday_request(request['request_id'], request['status'], note):
+                                    st.success("✅ Note added!")
+                                    st.rerun()
+                                else:
+                                    st.error("❌ Failed to add note.")
+    else:
+        st.info("No holiday requests found.")

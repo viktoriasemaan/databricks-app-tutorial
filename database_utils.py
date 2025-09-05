@@ -1,4 +1,4 @@
-import os
+aseis import os
 import time
 import json
 import pandas as pd
@@ -141,8 +141,36 @@ def save_pdf(pdf_filename, content, file_size, page_count):
         st.error(f"❌ Database error saving PDF: {e}")
         return None
 
-def save_questions(questions, pdf_id):
-    """Save generated questions to database."""
+def create_quiz(quiz_name, description, pdf_id, total_questions):
+    """Create a new quiz and return the quiz_id."""
+    engine = get_lakebase_connection()
+    if not engine:
+        st.error("❌ No database connection")
+        return None
+    
+    try:
+        query = text("""
+        INSERT INTO quiz_app.quizzes (quiz_name, description, pdf_id, total_questions)
+        VALUES (:quiz_name, :description, :pdf_id, :total_questions)
+        RETURNING quiz_id
+        """)
+        
+        with engine.connect() as conn:
+            result = conn.execute(query, {
+                "quiz_name": quiz_name,
+                "description": description,
+                "pdf_id": pdf_id,
+                "total_questions": total_questions
+            })
+            quiz_id = result.fetchone()[0]
+            conn.commit()
+            return quiz_id
+    except Exception as e:
+        st.error(f"❌ Database error creating quiz: {e}")
+        return None
+
+def save_questions(questions, quiz_id):
+    """Save generated questions to database with quiz_id."""
     engine = get_lakebase_connection()
     if not engine:
         st.error("❌ No database connection")
@@ -150,15 +178,15 @@ def save_questions(questions, pdf_id):
     
     try:
         query = text("""
-        INSERT INTO quiz_app.questions (pdf_id, question_text, option_a, option_b, option_c, option_d, correct_answer, difficulty)
-        VALUES (:pdf_id, :question_text, :option_a, :option_b, :option_c, :option_d, :correct_answer, :difficulty)
+        INSERT INTO quiz_app.questions (quiz_id, question_text, option_a, option_b, option_c, option_d, correct_answer, difficulty)
+        VALUES (:quiz_id, :question_text, :option_a, :option_b, :option_c, :option_d, :correct_answer, :difficulty)
         """)
         
         with engine.connect() as conn:
             for i, question in enumerate(questions, 1):
                 try:
                     conn.execute(query, {
-                        "pdf_id": pdf_id,
+                        "quiz_id": quiz_id,
                         "question_text": question["question"],
                         "option_a": question["option_a"],
                         "option_b": question["option_b"],
@@ -176,6 +204,25 @@ def save_questions(questions, pdf_id):
     except Exception as e:
         st.error(f"❌ Database error saving questions: {e}")
         return False
+
+def get_all_quizzes():
+    """Get all available quizzes."""
+    engine = get_lakebase_connection()
+    if not engine:
+        return pd.DataFrame()
+    
+    try:
+        query = text("""
+        SELECT quiz_id, quiz_name, description, created_date, total_questions, is_active
+        FROM quiz_app.quizzes 
+        WHERE is_active = TRUE 
+        ORDER BY created_date DESC
+        """)
+        df = pd.read_sql_query(query, engine)
+        return df
+    except Exception as e:
+        st.error(f"❌ Database error fetching quizzes: {e}")
+        return pd.DataFrame()
 
 def get_all_pdfs():
     """Get all uploaded PDFs."""
@@ -209,26 +256,35 @@ def get_questions_by_pdf(pdf_id):
         st.error(f"Error fetching questions: {e}")
         return pd.DataFrame()
 
-def get_random_questions(num_questions=5):
-    """Get random questions for testing."""
+def get_random_questions(num_questions=5, quiz_id=None):
+    """Get random questions for testing from a specific quiz or all quizzes."""
     engine = get_lakebase_connection()
     if not engine:
         return pd.DataFrame()
     
     try:
-        query = text("""
-        SELECT * FROM quiz_app.questions 
-        WHERE is_active = TRUE 
-        ORDER BY RANDOM() 
-        LIMIT :num_questions
-        """)
-        df = pd.read_sql_query(query, engine, params={"num_questions": num_questions})
+        if quiz_id:
+            query = text("""
+            SELECT * FROM quiz_app.questions 
+            WHERE is_active = TRUE AND quiz_id = :quiz_id
+            ORDER BY RANDOM() 
+            LIMIT :num_questions
+            """)
+            df = pd.read_sql_query(query, engine, params={"num_questions": num_questions, "quiz_id": quiz_id})
+        else:
+            query = text("""
+            SELECT * FROM quiz_app.questions 
+            WHERE is_active = TRUE 
+            ORDER BY RANDOM() 
+            LIMIT :num_questions
+            """)
+            df = pd.read_sql_query(query, engine, params={"num_questions": num_questions})
         return df
     except Exception as e:
         st.error(f"Error fetching random questions: {e}")
         return pd.DataFrame()
 
-def save_test_result(total_questions, correct_answers, score_percentage, time_taken, questions_used):
+def save_test_result(total_questions, correct_answers, score_percentage, time_taken, questions_used, quiz_id=None, quiz_name=None):
     """Save test results to database."""
     engine = get_lakebase_connection()
     if not engine:
@@ -236,8 +292,8 @@ def save_test_result(total_questions, correct_answers, score_percentage, time_ta
     
     try:
         query = text("""
-        INSERT INTO quiz_app.test_results (total_questions, correct_answers, score_percentage, time_taken_seconds, questions_used)
-        VALUES (:total_questions, :correct_answers, :score_percentage, :time_taken, :questions_used)
+        INSERT INTO quiz_app.test_results (total_questions, correct_answers, score_percentage, time_taken_seconds, questions_used, quiz_id, quiz_name)
+        VALUES (:total_questions, :correct_answers, :score_percentage, :time_taken, :questions_used, :quiz_id, :quiz_name)
         """)
         
         with engine.connect() as conn:
@@ -246,7 +302,9 @@ def save_test_result(total_questions, correct_answers, score_percentage, time_ta
                 "correct_answers": correct_answers,
                 "score_percentage": score_percentage,
                 "time_taken": time_taken,
-                "questions_used": json.dumps(questions_used)
+                "questions_used": json.dumps(questions_used),
+                "quiz_id": quiz_id,
+                "quiz_name": quiz_name
             })
             conn.commit()
             return True
