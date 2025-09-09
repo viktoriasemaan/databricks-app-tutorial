@@ -1,4 +1,4 @@
-# Databricks App Tutorial - Complete AI-Powered Application
+# ❌ Databricks App Tutorial -UNDER CONSTRUCTION! CHECK BACK LATER 
 
 A comprehensive Streamlit application built for Databricks Apps with multiple AI-powered features including multimodal chatbot, holiday management, and intelligent quiz generation.
 
