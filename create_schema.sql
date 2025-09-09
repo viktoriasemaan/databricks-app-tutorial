@@ -39,7 +39,7 @@ CREATE TABLE IF NOT EXISTS quiz_app.test_results (
 
 -- Grant permissions to the app's client ID
 -- Replace with your actual client ID from the environment
-GRANT USAGE ON SCHEMA quiz_app TO "b9c8c5c3-ba96-43f4-bcfe-09405a42f7a3";
-GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE quiz_app.pdfs TO "b9c8c5c3-ba96-43f4-bcfe-09405a42f7a3";
-GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE quiz_app.questions TO "b9c8c5c3-ba96-43f4-bcfe-09405a42f7a3";
-GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE quiz_app.test_results TO "b9c8c5c3-ba96-43f4-bcfe-09405a42f7a3";
+GRANT USAGE ON SCHEMA quiz_app TO "your client id";
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE quiz_app.pdfs TO "your client id";
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE quiz_app.questions TO "your client id";
+GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE quiz_app.test_results TO "your client id";
